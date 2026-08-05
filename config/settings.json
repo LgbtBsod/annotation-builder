@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SAP Annotation Builder Configuration",
+  "description": "Configuration file for SAP Annotation Builder HTTP Server",
+  "type": "object",
+  "properties": {
+    "server": {
+      "type": "object",
+      "description": "Server configuration settings",
+      "properties": {
+        "defaultPort": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65535,
+          "default": 18765,
+          "description": "Default port to start searching from"
+        },
+        "portRange": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 100,
+          "description": "Number of ports to try if default is busy"
+        },
+        "portRetryDelayMs": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 5000,
+          "default": 50,
+          "description": "Delay between port retry attempts in milliseconds"
+        },
+        "host": {
+          "type": "string",
+          "default": "localhost",
+          "description": "Host address to bind to"
+        }
+      },
+      "required": ["defaultPort", "portRange"]
+    },
+    "security": {
+      "type": "object",
+      "description": "Security settings",
+      "properties": {
+        "maxFileSizeBytes": {
+          "type": "integer",
+          "minimum": 1048576,
+          "maximum": 524288000,
+          "default": 52428800,
+          "description": "Maximum file size limit in bytes (default: 50MB)"
+        },
+        "enableCors": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable CORS headers for cross-origin requests"
+        },
+        "allowedOrigins": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["*"],
+          "description": "List of allowed origins if CORS is enabled"
+        }
+      },
+      "required": ["maxFileSizeBytes"]
+    },
+    "performance": {
+      "type": "object",
+      "description": "Performance and caching settings",
+      "properties": {
+        "cacheMaxAgeSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 31536000,
+          "default": 31536000,
+          "description": "Cache-Control max-age in seconds (default: 1 year)"
+        },
+        "enableGzip": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable GZIP compression for text-based files"
+        },
+        "gzipMinSizeBytes": {
+          "type": "integer",
+          "minimum": 256,
+          "maximum": 10240,
+          "default": 1024,
+          "description": "Minimum file size to apply GZIP compression"
+        },
+        "requestRetryDelayMs": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 1000,
+          "default": 100,
+          "description": "Delay before retrying failed requests"
+        }
+      },
+      "required": ["cacheMaxAgeSeconds", "enableGzip"]
+    },
+    "logging": {
+      "type": "object",
+      "description": "Logging configuration",
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": ["Debug", "Info", "Warning", "Error"],
+          "default": "Info",
+          "description": "Minimum log level to display"
+        },
+        "enableFileLogging": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable logging to file"
+        },
+        "logFilePath": {
+          "type": "string",
+          "default": "./logs/server.log",
+          "description": "Path to log file (relative to script directory)"
+        },
+        "maxLogFileSizeBytes": {
+          "type": "integer",
+          "minimum": 1048576,
+          "maximum": 104857600,
+          "default": 10485760,
+          "description": "Maximum log file size before rotation (default: 10MB)"
+        },
+        "maxLogFiles": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 5,
+          "description": "Maximum number of log files to keep"
+        }
+      },
+      "required": ["level"]
+    },
+    "browser": {
+      "type": "object",
+      "description": "Browser auto-open settings",
+      "properties": {
+        "autoOpen": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically open browser on server start"
+        },
+        "openDelayMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000,
+          "default": 1500,
+          "description": "Delay before opening browser in milliseconds"
+        }
+      },
+      "required": ["autoOpen"]
+    },
+    "paths": {
+      "type": "object",
+      "description": "Path configuration",
+      "properties": {
+        "webDirectory": {
+          "type": "string",
+          "default": "./web",
+          "description": "Relative path to web content directory"
+        },
+        "indexFile": {
+          "type": "string",
+          "default": "index.html",
+          "description": "Default index file name"
+        }
+      },
+      "required": ["webDirectory", "indexFile"]
+    }
+  },
+  "required": ["server", "security", "performance", "logging", "browser", "paths"]
+}

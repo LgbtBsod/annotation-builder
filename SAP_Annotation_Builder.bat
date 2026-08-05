@@ -11,6 +11,14 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
+:: Check if the PowerShell script exists
+if not exist "%~dp0SAP_Annotation_Builder.ps1" (
+    echo ERROR: SAP_Annotation_Builder.ps1 not found.
+    echo Make sure the script is in the same directory as this batch file.
+    pause
+    exit /b 1
+)
+
 :: Run the PowerShell server
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0SAP_Annotation_Builder.ps1"
 
