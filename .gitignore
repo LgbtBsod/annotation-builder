@@ -1,0 +1,19 @@
+```
+# Environment files
+.env
+.env.local
+*.env.*
+
+# Logs
+*.log
+
+# Backup and swap files
+*.swp
+*.swo
+*.bak
+*.tmp
+
+# OS generated files
+.DS_Store
+Thumbs.db
+```

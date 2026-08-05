@@ -1,0 +1,34 @@
+{
+  "server": {
+    "defaultPort": 18765,
+    "portRange": 100,
+    "portRetryDelayMs": 50,
+    "host": "localhost"
+  },
+  "security": {
+    "maxFileSizeBytes": 52428800,
+    "enableCors": false,
+    "allowedOrigins": ["*"]
+  },
+  "performance": {
+    "cacheMaxAgeSeconds": 31536000,
+    "enableGzip": true,
+    "gzipMinSizeBytes": 1024,
+    "requestRetryDelayMs": 100
+  },
+  "logging": {
+    "level": "Info",
+    "enableFileLogging": false,
+    "logFilePath": "./logs/server.log",
+    "maxLogFileSizeBytes": 10485760,
+    "maxLogFiles": 5
+  },
+  "browser": {
+    "autoOpen": true,
+    "openDelayMs": 1500
+  },
+  "paths": {
+    "webDirectory": "./web",
+    "indexFile": "index.html"
+  }
+}
