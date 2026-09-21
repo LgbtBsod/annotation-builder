@@ -1,19 +1,20 @@
-```
-# Environment files
-.env
-.env.local
-*.env.*
-
-# Logs
-*.log
-
-# Backup and swap files
-*.swp
-*.swo
-*.bak
-*.tmp
-
-# OS generated files
-.DS_Store
-Thumbs.db
+```markdown
+# Documentation files (generated reports and docs)
+*.md
+docs/*.md
+CHANGELOG.md
+FINAL_PROJECT_REPORT.md
+REFACTORING_REPORT_V2.md
+COMPLETE_REFERENCE.md
+PROJECT_STATISTICS.md
+VERSION_HISTORY.md
+docs/ARCHITECTURE.md
+docs/CONTRIBUTING.md
+docs/HEALTH_CHECK.md
+docs/IMPROVEMENTS_SUMMARY.md
+docs/PERFORMANCE_GUIDE.md
+docs/PROJECT_SUMMARY.md
+docs/ROADMAP.md
+docs/SECURITY_GUIDELINES.md
+docs/TESTING_GUIDE.md
 ```

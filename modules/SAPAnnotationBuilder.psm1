@@ -298,10 +298,14 @@ function Get-ETag {
     }
 }
 
-function Handle-ConditionalRequest {
+function Invoke-ConditionalRequestHandler {
     <#
     .SYNOPSIS
         Checks If-None-Match header for 304 Not Modified response
+    .DESCRIPTION
+        Implements HTTP conditional request handling using ETag.
+        If the client's If-None-Match header matches the current ETag,
+        returns 304 Not Modified status without body.
     .PARAMETER Context
         HttpListenerContext
     .PARAMETER ETag
@@ -450,32 +454,54 @@ function Test-WebDirectory {
 }
 
 function Find-FreePort {
+    <#
+    .SYNOPSIS
+        Finds an available port by attempting to bind HttpListener
+    .PARAMETER StartPort
+        Starting port number to check
+    .PARAMETER Range
+        Number of ports to try
+    .OUTPUTS
+        Hashtable with Listener and Port, or $null if no port found
+    #>
     param(
         [int]$StartPort = $Configuration.Server.DefaultPort,
         [int]$Range = $Configuration.Server.PortRange
     )
     
-    $httpListener = $null
-    
     for ($p = $StartPort; $p -lt ($StartPort + $Range); $p++) {
+        $httpListener = $null
         try {
             $httpListener = New-Object System.Net.HttpListener
             $host = $Configuration.Server.Host
             $httpListener.Prefixes.Add("http://$host`:$$p/")
             $httpListener.Start()
+            
+            # Successfully bound, return immediately
             return @{
                 Listener = $httpListener
                 Port = $p
             }
         } catch {
+            # Clean up failed listener attempt
             if ($null -ne $httpListener) { 
-                try { $httpListener.Close() } catch {}
+                try { 
+                    if ($httpListener.IsListening) {
+                        $httpListener.Stop()
+                    }
+                    $httpListener.Close()
+                    $httpListener.Dispose()
+                } catch {
+                    Write-ServerLog "  [DEBUG] Failed to cleanup listener on port $p" -Level Debug
+                }
                 $httpListener = $null 
             }
+            Write-ServerLog "  [DEBUG] Port $p is unavailable, trying next..." -Level Debug
             Start-Sleep -Milliseconds $Configuration.Server.PortRetryDelayMs
         }
     }
     
+    Write-ServerLog "  [ERROR] No available port found in range $StartPort-$($StartPort + $Range)" -Level Error
     return $null
 }
 
@@ -587,7 +613,15 @@ function Send-Response {
 #endregion
 
 #region Request Handlers
-function Handle-FaviconRequest {
+function Invoke-FaviconHandler {
+    <#
+    .SYNOPSIS
+        Handles favicon.ico requests with caching support
+    .PARAMETER Context
+        HttpListenerContext
+    .PARAMETER WebDirectory
+        Path to web directory
+    #>
     param(
         [System.Net.HttpListenerContext]$Context,
         [string]$WebDirectory
@@ -600,7 +634,7 @@ function Handle-FaviconRequest {
             $bytes = [System.IO.File]::ReadAllBytes($faviconPath)
             $eTag = Get-ETag -FilePath $faviconPath
             
-            if (Handle-ConditionalRequest -Context $Context -ETag $eTag) {
+            if (Invoke-ConditionalRequestHandler -Context $Context -ETag $eTag) {
                 return
             }
             
@@ -613,7 +647,17 @@ function Handle-FaviconRequest {
     }
 }
 
-function Handle-StaticFile {
+function Invoke-StaticFileHandler {
+    <#
+    .SYNOPSIS
+        Serves static files with ETag caching and GZIP compression
+    .PARAMETER Context
+        HttpListenerContext
+    .PARAMETER FilePath
+        Full path to the file
+    .PARAMETER RequestPath
+        Original request path for caching logic
+    #>
     param(
         [System.Net.HttpListenerContext]$Context,
         [string]$FilePath,
@@ -626,11 +670,12 @@ function Handle-StaticFile {
         $bytes = [System.IO.File]::ReadAllBytes($FilePath)
         $eTag = Get-ETag -FilePath $FilePath
         
-        # Check conditional request
-        if ($eTag -and (Handle-ConditionalRequest -Context $Context -ETag $eTag)) {
+        # Check conditional request (If-None-Match)
+        if ($eTag -and (Invoke-ConditionalRequestHandler -Context $Context -ETag $eTag)) {
             return
         }
         
+        # Enable aggressive caching for Next.js assets
         $enableCaching = ($RequestPath -match "^/_next/")
         
         Send-Response -Context $Context -StatusCode 200 -ContentType $contentType -Bytes $bytes -ETag $eTag -EnableCaching $enableCaching
@@ -643,7 +688,15 @@ function Handle-StaticFile {
     }
 }
 
-function Handle-SpaFallback {
+function Invoke-SpaFallbackHandler {
+    <#
+    .SYNOPSIS
+        Handles SPA fallback by serving index.html for client-side routing
+    .PARAMETER Context
+        HttpListenerContext
+    .PARAMETER WebDirectory
+        Path to web directory
+    #>
     param(
         [System.Net.HttpListenerContext]$Context,
         [string]$WebDirectory
@@ -656,7 +709,7 @@ function Handle-SpaFallback {
             $bytes = [System.IO.File]::ReadAllBytes($indexPath)
             $eTag = Get-ETag -FilePath $indexPath
             
-            if (Handle-ConditionalRequest -Context $Context -ETag $eTag) {
+            if (Invoke-ConditionalRequestHandler -Context $Context -ETag $eTag) {
                 return
             }
             
@@ -669,10 +722,15 @@ function Handle-SpaFallback {
     }
 }
 
-function Handle-OptionsRequest {
+function Invoke-OptionsHandler {
     <#
     .SYNOPSIS
         Handles OPTIONS preflight requests for CORS
+    .DESCRIPTION
+        Returns 204 No Content with appropriate CORS headers if CORS is enabled.
+        Returns 405 Method Not Allowed if CORS is disabled.
+    .PARAMETER Context
+        HttpListenerContext
     #>
     param([System.Net.HttpListenerContext]$Context)
     
@@ -686,7 +744,40 @@ function Handle-OptionsRequest {
     }
 }
 
-function Handle-Request {
+function Invoke-HealthCheckHandler {
+    <#
+    .SYNOPSIS
+        Handles /health endpoint for monitoring and diagnostics
+    .DESCRIPTION
+        Returns JSON response with server health status, version, timestamp,
+        and configuration information. Supports GZIP compression.
+    .PARAMETER Context
+        HttpListenerContext
+    #>
+    param([System.Net.HttpListenerContext]$Context)
+    
+    try {
+        $healthData = Get-HealthStatus
+        $jsonContent = $healthData | ConvertTo-Json -Depth 3 -Compress:$false
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($jsonContent)
+        
+        Send-Response -Context $Context -StatusCode 200 -ContentType "application/json; charset=utf-8" -Bytes $bytes -EnableCaching $false -EnableCompression $true
+    } catch {
+        Write-ServerLog "  [ERROR] Health check failed: $($_.Exception.Message)" -Level Error
+        Send-Response -Context $Context -StatusCode 500
+    }
+}
+
+function Invoke-RequestHandler {
+    <#
+    .SYNOPSIS
+        Main request router for HTTP server
+    .DESCRIPTION
+        Routes incoming HTTP requests to appropriate handlers based on method and path.
+        Supports GET and OPTIONS methods only. Implements security checks and SPA fallback.
+    .PARAMETER Context
+        HttpListenerContext
+    #>
     param([System.Net.HttpListenerContext]$Context)
     
     try {
@@ -694,9 +785,9 @@ function Handle-Request {
         $path = $request.Url.LocalPath
         $method = $request.HttpMethod
         
-        # Handle OPTIONS for CORS
+        # Handle OPTIONS for CORS preflight
         if ($method -eq "OPTIONS") {
-            Handle-OptionsRequest -Context $Context
+            Invoke-OptionsHandler -Context $Context
             return
         }
         
@@ -706,18 +797,24 @@ function Handle-Request {
             return
         }
         
-        # Default route
+        # Default route - serve index.html
         if ($path -eq "/") { 
             $path = "/" + $Configuration.Paths.IndexFile
         }
         
-        # Favicon handling
-        if ($path -eq "/favicon.ico") {
-            Handle-FaviconRequest -Context $Context -WebDirectory $Configuration.Paths.WebDirectory
+        # Health check endpoint
+        if ($path -eq "/health") {
+            Invoke-HealthCheckHandler -Context $Context
             return
         }
         
-        # Security: resolve and validate path
+        # Favicon handling
+        if ($path -eq "/favicon.ico") {
+            Invoke-FaviconHandler -Context $Context -WebDirectory $Configuration.Paths.WebDirectory
+            return
+        }
+        
+        # Security: resolve and validate path (prevent directory traversal)
         $filePath = Resolve-SafeFilePath -WebDirectory $Configuration.Paths.WebDirectory -RequestPath $path
         
         if ($null -eq $filePath) {
@@ -726,11 +823,11 @@ function Handle-Request {
             return
         }
         
-        # Serve file or fallback
+        # Serve static file or fallback to index.html for SPA routing
         if (Test-Path $filePath -PathType Leaf) {
-            Handle-StaticFile -Context $Context -FilePath $filePath -RequestPath $path
+            Invoke-StaticFileHandler -Context $Context -FilePath $filePath -RequestPath $path
         } else {
-            Handle-SpaFallback -Context $Context -WebDirectory $Configuration.Paths.WebDirectory
+            Invoke-SpaFallbackHandler -Context $Context -WebDirectory $Configuration.Paths.WebDirectory
         }
         
     } catch [System.Net.HttpListenerException] {
@@ -848,20 +945,50 @@ function Get-HealthStatus {
 #endregion
 
 #region Module Exports
+# Core functions
 Export-ModuleMember -Function Initialize-Configuration
 Export-ModuleMember -Function Write-ServerLog
+
+# MIME and compression
 Export-ModuleMember -Function Get-MimeType
-Export-ModuleMember -Function Find-FreePort
-Export-ModuleMember -Function Test-WebDirectory
+Export-ModuleMember -Function IsCompressible
+Export-ModuleMember -Function Compress-Gzip
+
+# Caching
+Export-ModuleMember -Function Get-ETag
+Export-ModuleMember -Function Invoke-ConditionalRequestHandler
+
+# Security
 Export-ModuleMember -Function Resolve-SafeFilePath
-Export-ModuleMember -Function Handle-Request
+Export-ModuleMember -Function Add-CorsHeaders
+
+# Port management
+Export-ModuleMember -Function Find-FreePort
+
+# Request handlers (Invoke-* pattern for PowerShell standard compliance)
+Export-ModuleMember -Function Invoke-RequestHandler
+Export-ModuleMember -Function Invoke-FaviconHandler
+Export-ModuleMember -Function Invoke-StaticFileHandler
+Export-ModuleMember -Function Invoke-SpaFallbackHandler
+Export-ModuleMember -Function Invoke-OptionsHandler
+Export-ModuleMember -Function Invoke-HealthCheckHandler
+
+# Response handling
+Export-ModuleMember -Function Send-Response
+
+# Server lifecycle
 Export-ModuleMember -Function Start-HttpServer
 Export-ModuleMember -Function Stop-HttpServer
 Export-ModuleMember -Function Show-Banner
 Export-ModuleMember -Function Open-Browser
+
+# Health monitoring
 Export-ModuleMember -Function Get-HealthStatus
-Export-ModuleMember -Function Compress-Gzip
-Export-ModuleMember -Function Get-ETag
+
+# Web directory validation
+Export-ModuleMember -Function Test-WebDirectory
+
+# Variables
 Export-ModuleMember -Variable Configuration
 Export-ModuleMember -Variable MODULE_VERSION
 #endregion
